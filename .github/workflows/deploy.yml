@@ -45,7 +45,7 @@ jobs:
 
   
   # 2️⃣ Deploy to EC2
-  # ─────────────────────────────────────────────
+   
   deploy:
     name: Deploy to EC2
     runs-on: ubuntu-latest
