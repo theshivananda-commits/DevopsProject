@@ -3,27 +3,19 @@ name: Build & Deploy
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # ─────────────────────────────────────────────
-  # Job 1: Build & push Docker image
-  # ─────────────────────────────────────────────
+
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
-    outputs:
-      image_tag: ${{ steps.meta.outputs.tags }}
-      image_digest: ${{ steps.build.outputs.digest }}
 
     steps:
       - name: Checkout code
@@ -32,71 +24,46 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,prefix=sha-
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-
       - name: Build and push Docker image
-        id: build
         uses: docker/build-push-action@v5
         with:
-          context: ./app
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-  # ─────────────────────────────────────────────
-  # Job 2: Deploy to EC2 (main branch only)
-  # ─────────────────────────────────────────────
   deploy:
     name: Deploy to EC2
     runs-on: ubuntu-latest
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment: production
 
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ec2-user
+          username: ubuntu
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          port: 22
           script: |
-            IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+            IMAGE="ghcr.io/${{ github.repository }}:latest"
 
-            # Log in to GHCR (read-only, uses GITHUB_TOKEN)
             echo "${{ secrets.GHCR_READ_TOKEN }}" | \
               docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            # Run deploy script
             /opt/app/deploy.sh "$IMAGE"
 
       - name: Verify deployment
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ec2-user
+          username: ubuntu
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          port: 22
           script: |
-            echo "=== Health Check ==="
-            curl -sf http://localhost:5000/health && echo " PASSED" || (echo " FAILED"; exit 1)
-
-            echo "=== Running containers ==="
-            docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+            curl -sf http://localhost/health && echo "Health OK"
+            docker ps
