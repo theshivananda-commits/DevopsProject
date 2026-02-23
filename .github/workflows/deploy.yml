@@ -10,9 +10,9 @@ env:
 
 jobs:
 
-  # ─────────────────────────────────────────────
+  
   # 1️⃣ Build & Push Docker Image
-  # ─────────────────────────────────────────────
+ 
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
